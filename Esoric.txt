@@ -1,0 +1,278 @@
+install.packages("pacman")
+pacman::p_load(pacman,caret,tidyr,tidyverse,ggplot2,dplyr,randomForest,rtsne,scatterplot3d, e1071, synthpop,reshape)
+Data1 <- read.csv(file.choose(), sep = ",", stringsAsFactors = T)
+sANALYSIS <- read.csv(file.choose(), sep = ",", stringsAsFactors = T)
+Data <- Data[,-c(1,45)]
+
+### converting factor variables using One-Hot encoding
+
+Dummy <- dummyVars("~.", data = Data[-43], fullRank = T)
+DF <- data.frame(predict(Dummy, newdata=Data[-43]))
+new_DF <- data.frame(DF,Data[43]) 
+
+#### Ranking the Features according to importance
+# cor(new_DF, new_Df$response variable)  to correlation between variables
+
+fitRF <- randomForest(attack_cat~., data = new_DF)
+importance(fitRF)
+rank <- importance(fitRF)>=3
+rank1 <- which(rank==TRUE)
+
+#### Only Variable with importance 3 and above
+
+newData <- new_DF[,rank1]
+
+### Normalization
+
+norm <- function(x){
+  (x - min(x)) / (max(x) - min(x))
+}
+normData <- as.data.frame(lapply(newData, norm))
+normData <- data.frame(normData, Data[43])
+
+##PCA
+PC <- prcomp(normData[-60])
+summary(PC)
+newPC <- PC$x[,1:24]
+pcDF <- data.frame(newPC,Data[43])
+pcDF$attack_cat <- as.factor(pcDF$attack_cat)
+table(pcDF$attack_cat)
+
+
+### Plot the Distribution
+barplot(prop.table(table(Data$attack_cat)),
+        col = rainbow(7),
+        ylim = c(0,0.5),
+        las =3,
+        main = "Class Distribution")
+
+
+##### Filtering the labels
+Analysis <- DF %>% filter(DF$attack_cat == "Analysis")
+Backdoor <- DF %>% filter(DF$attack_cat == "Backdoor")
+DoS <- DF %>% filter(DF$attack_cat == "DoS")
+Exploits <- DF %>% filter(DF$attack_cat == "Exploits")
+Fuzzers <- DF %>% filter(DF$attack_cat == "Fuzzers")
+Generic <- DF %>% filter(DF$attack_cat == "Generic")
+Normal <- DF %>% filter(DF$attack_cat == "Normal")
+Reconnaissance <- DF %>% filter(DF$attack_cat == "Reconnaissance")
+Shellcode <- DF %>% filter(DF$attack_cat == "Shellcode")
+Worms <- DF %>% filter(DF$attack_cat == "Worms")
+
+sAnalysis <- data.frame(sAnalysis)
+
+### Generating synthetic data using synthpop
+binaryNormal <- syn(bi_Normal[-25], m=1, k=7.82*nrow(bi_Normal[-25]))
+sAnalysis <- syn(Analysis[-25], m=1, k=nrow(Analysis[-25]))
+sBackdoor <- syn(Backdoor[-25], m=1, k=nrow(Backdoor[-25]))
+compare(sBackdoor, Backdoor)
+### Export synthetic file  
+write.syn(binaryNormal, file = "binaryNormal", filetype = "csv")
+
+##### loading Augmented data
+sAnalysis <- read.csv(file.choose(), sep = ",", stringsAsFactors = T)
+sBackdoor <- read.csv(file.choose(), sep = ",", stringsAsFactors = T)
+sDoS <- read.csv(file.choose(), sep = ",", stringsAsFactors = T)
+sExploits <- read.csv(file.choose(), sep = ",", stringsAsFactors = T)
+sFuzzers <- read.csv(file.choose(), sep = ",", stringsAsFactors = T)
+sReconnaissance <- read.csv(file.choose(), sep = ",", stringsAsFactors = T)
+sShellcode <- read.csv(file.choose(), sep = ",", stringsAsFactors = T)
+sWorms <- read.csv(file.choose(), sep = ",", stringsAsFactors = T)
+
+##### Merging original subset with augmented data
+newAnalysis <- rbind(sAnalysis,Analysis)
+newBackdoor <- rbind(sBackdoor,Backdoor)
+newDoS <- rbind(sDoS,DoS)
+newExploits <- rbind(sExploits,Exploits)
+newFuzzers <- rbind(sFuzzers,Fuzzers)
+newReconnaissance <- rbind(sReconnaissance,Reconnaissance)
+newShellcode <- rbind(sShellcode,Shellcode)
+newWorms <- rbind(sWorms,Worms)
+
+##### combining all the augmented data
+aug_Data <- rbind(newAnalysis,newBackdoor,newDoS,newExploits,newFuzzers,
+                  newReconnaissance,newShellcode,newWorms,Generic,Normal)
+
+#### Applying K-Fold Crossvalidation
+set.seed(100)
+fitControl <- trainControl(method = "cv",
+                           number = 5,
+                           search = "random",
+                           savePredictions = T)
+
+modelFitRF <- train(attack_cat~., data = aug_Data,
+                    method = "rf",
+                    trControl = fitControl,
+                    tuneLenght = 10,
+                    ntree = 1000)
+
+
+modelFitRF$bestTune
+
+plot(varImp(modelFitRF, scale = F),
+     main = "Var Imp: RF 5 fold cv")
+
+sub_RF = subset(modelFitRF$pred,
+                modelFitRF$pred$mtry==modelFitRF$bestTune$mtry)
+
+caret::confusionMatrix(table(sub_RF$pred,sub_RF$obs))
+
+
+#### Applying K-Fold Crossvalidation with reduced features
+set.seed(111)
+fitControl <- trainControl(method = "cv",
+                           number = 5,
+                           search = "random",
+                           savePredictions = T)
+
+modelFitRF <- train(attack_cat~., data = aug_Data,
+                    method = "rf",
+                    trControl = fitControl,
+                    tuneLenght = 10,
+                    ntree = 1000)
+
+
+modelFitRF$bestTune
+
+plot(varImp(modelFitRF, scale = F),
+     main = "Var Imp: RF 5 fold cv")
+
+sub_RF = subset(modelFitRF$pred,
+                modelFitRF$pred$mtry==modelFitRF$bestTune$mtry)
+
+caret::confusionMatrix(table(sub_RF$pred,sub_RF$obs))
+
+# USING SMART GRID DATASET
+import dataset
+# joining the sets
+all = list(Data1, Data)
+comb_data <- merge_recurse(all)   
+
+#Convert all infinite (INF) values to NA and remove the NA values
+cleanData <- do.call(data.frame, lapply(comb_data, 
+                                        function(x) replace(x, 
+                                                            is.infinite(x), NA)))
+DF<- na.omit(cleanData)
+sum(is.na(newDF))
+
+## removing zero variance features
+new <- DF[ , which(apply(DF, 2, var) != 0)]
+
+#scaling of dataframe
+norm <- function(x) {
+  (x - min(x)) / (max(x) - min(x))
+}
+newDF <- as.data.frame(lapply(new, norm))
+newDF$marker <-DF$marker
+newDF$marker <- factor(newDF$marker)
+
+## PCA
+pc <- prcomp(newDF[-120], center = TRUE)
+summary(pc)
+newPC <- pc$x[,1:25]
+PC_data <- data.frame(newPC,newDF[120])
+
+## Saving dataset
+saveRDS(PC_data, "PC_data.rds")
+
+table(PC_data$marker)
+
+## Applying Machine Learning
+
+set.seed(100)
+part <- sample(1:9304, 9304*0.7, replace = F)
+train <- PC_data[part,]
+test <- PC_data[-part,]
+
+rfFit <- randomForest(marker~., data = train)
+rfPred <- predict(rfFit, test)
+confusionMatrix(rfPred, test$marker)
+
+## with SVM
+
+svmFit <- svm(marker~., data = train)
+svmPred <- predict(svmFit, test)
+confusionMatrix(svmPred, test$marker)
+
+
+##SPLITING THE DATASET
+
+Attack <- train%>%filter(train$marker=="Attack")
+Natural <- train%>%filter(train$marker=="Natural")
+NoEvents <- train%>%filter(train$marker=="NoEvents")
+
+# Creation of synthetic data
+sNatural <- syn(Natural[-26], m=1, k=3.52*nrow(Natural[-26]))
+sNoEvents <- syn(NoEvents[-26], m=1, k=12.195*nrow(NoEvents[-26]))
+
+
+##exporting the synthetic data
+
+write.syn(sNatural, file = "sNatural", filetype = "csv")
+write.syn(sNoEvents, file = "sNoEvents", filetype = "csv")
+
+##Combine augmented and original instant classes
+
+n_Natural <- rbind(Natural,newNatural)
+n_NoEvents <- rbind(NoEvents,newNoEvents)
+
+## Combining all the subsets to obtain the new training data
+
+syn_TRAIN <- rbind(Attack,n_Natural,n_NoEvents)
+syn_TRAIN$marker <- factor(syn_TRAIN$marker)
+
+
+## Apply model on augmented training data
+set.seed(123)
+fit_aug <- svm(marker~., data = syn_TRAIN)
+pred_aug <- predict(fit_aug, test)
+confusionMatrix(pred_aug, test$marker)
+
+FitRAN <- randomForest(marker~., data = syn_TRAIN)
+predRAN <- predict(FitRAN, test)
+confusionMatrix(predRAN, test$marker)
+
+## Tuning SVM for better output
+library("e1071")
+#Using the SVM model defined in the package with all variables considered in building the model
+svm_model=svm(marker~.,data=syn_TRAIN,type='C-classification')
+#Summary will list the respective parameters uch as cost, gamma, etc.
+summary(svm_model)
+#Predicting the data with the input to be the dataset itself, we can calculate the accuracy with a confusion matrix
+pred=predict(svm_model,newdata=testSmartGrid)
+table(pred,testSmartGrid$marker)
+#The accuracy turns out to be 82.42%
+#Now let's tune the SVM parameters to get a better accuracy on the training dataset
+svm_tune <- tune(svm, train.x=syn_TRAIN, train.y=syn_TRAIN$marker, kernel="radial", 
+                 ranges=list(cost=10^(-1:2), gamma=c(0.5,1,2)))
+svm_tune <- tune.svm(marker~., data = syn_TRAIN, gamma = 2^(-1:1), cost = 2^(2:4))
+print(svm_tune)
+#Gives an optimal cost to be 10 and a gamma value of 0.5
+
+svm_model_after_tune <- svm(marker ~ ., data=syn_TRAIN, type='C-classification',kernel="radial", cost=16, gamma=2)
+summary(svm_model_after_tune)
+#The results show us that there is an improved accuracy of about 98%, results are obtained in the form of a confusion matrix
+pred <- predict(svm_model_after_tune,testSmartGrid)
+#system.time(predict(svm_model_after_tune,diabetes))
+table(pred,testSmartGrid$marker)
+confusionMatrix(pred, testSmartGrid$marker)
+
+#### Using ROSE package for oversampling
+
+over <-ovun.sample(Marker~., data = binaryTrain, method = "over", N = 4863*2)$data
+table(over$Marker)
+
+fits <- svm(Marker~., over)
+preds <- predict(fits, binaryTest)
+confusionMatrix(preds, binaryTest$Marker)
+
+
+## USING SMOTE
+smoteData <- SMOTE(binaryTrain[,-26], binaryTrain$Marker)
+NEW <- smoteData$data
+table(NEW$class)
+
+
+fits <- svm(class~., NEW)
+preds <- predict(fits, binaryTest)
+confusionMatrix(preds, binaryTest$Marker)
