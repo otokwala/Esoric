@@ -276,3 +276,8 @@ table(NEW$class)
 fits <- svm(class~., NEW)
 preds <- predict(fits, binaryTest)
 confusionMatrix(preds, binaryTest$Marker)
+
+### combining ROSE  and SAC
+
+TRAINING <- rbind(newtrain,over)
+table(TRAINING$marker)
